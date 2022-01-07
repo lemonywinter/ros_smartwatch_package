@@ -33,6 +33,8 @@ const float ACC_SCALE = 0.1;
 std::string planner_plugin_name;
 std::string ns;
 
+bool teachModeEnabled = false;
+
 int getWaypointCount()
 {
 	int size = gripper_positions.size();

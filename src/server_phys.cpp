@@ -33,6 +33,9 @@ const float ACC_SCALE = 0.1;
 std::string planner_plugin_name;
 std::string ns;
 
+bool lastTeachModeEnabled = false;
+bool teachModeEnabled = false;
+
 int getWaypointCount()
 {
 	int size = gripper_positions.size();
@@ -151,6 +154,12 @@ void executeWaypointsCallback(const std_msgs::String::ConstPtr& msg)
     //std::vector<double> gripper_joint_group_positions;
 }
 
+// TODO: Create topic on Android side
+void teachModeCallback(const std_msgs::String::ConstPtr& msg)
+{
+	teachModeEnabled = !teachModeEnabled;
+}
+
 // make new callback to also publish waypointcount
 
 int main(int argc, char **argv) {
@@ -170,7 +179,41 @@ int main(int argc, char **argv) {
   	ros::Subscriber delWayPointSub = node_handle.subscribe("deleteWayPoint", 1000, deleteWaypointCallback);
   	//ros::Subscriber getWaypointCount = node_handle.subscribe("getWaypointCount", 1000, sendWaypointCount);
   	ros::Subscriber executeWaypoints = node_handle.subscribe("executeCallback", 1000, executeWaypointsCallback);
-  	//ros::spin();
+  	ros::Subscriber teachModeSub = node_handle.subscribe("teachModeCallback", 1000, teachModeCallback);
+
+  	ros::Publisher teachModePub = node_handle.advertise<std_msgs::String>("/icl_ur5/ur_driver/URScript", 1000);
+  	std_msgs::String teachModeMsg;
+
+  	while(ros::ok())
+  	{
+  		lastTeachModeEnabled = teachModeEnabled;
+  		ros::spinOnce();
+	  	if (!lastTeachModeEnabled && teachModeEnabled)
+	  	{
+	  		teachModeMsg.data = "set robotmode freedrive";
+	  		/*teachModeMsg.data = "def myProg():\n";
+	        teachModeMsg.data += "\twhile (True):\n";
+	        teachModeMsg.data += "\t\tfreedrive_mode()\n";
+	        teachModeMsg.data +="\t\tsync()\n";
+	        teachModeMsg.data += "\tend\n";
+	        teachModeMsg.data +="end\n";*/
+	        teachModePub.publish(teachModeMsg);
+	        ROS_INFO("Teach mode enabled");
+	  	}
+
+	  	if(lastTeachModeEnabled && !teachModeEnabled)
+	  	{
+	  		//teachModeMsg.data = "set robotmode run";
+	        teachModeMsg.data = "def myProg():\n";
+	        teachModeMsg.data += "\twhile (True):\n";
+	        teachModeMsg.data += "\t\tend_freedrive_mode()\n";
+	        teachModeMsg.data +="\t\tsleep(0.5)\n";
+	        teachModeMsg.data += "\tend\n";
+	        teachModeMsg.data +="end\n";
+	        teachModePub.publish(teachModeMsg);
+	        ROS_INFO("Teach mode disabled");
+	    }
+	}
 
     ros::waitForShutdown();
 	return 0;
