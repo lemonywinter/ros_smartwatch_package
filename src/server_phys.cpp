@@ -19,11 +19,16 @@
 #include <std_msgs/Float32.h>
 #include "std_msgs/String.h"
 
+#include <control_msgs/GripperCommandAction.h>
+
 std::vector<std::vector<double> > waypoints; // Stores waypoints (list of respective joint positions)
 std::vector<float> gripper_positions;       // Stores the gripper positions associated with each waypoint; corresponds to waypoints vector
 
 // MoveIt!
 boost::scoped_ptr<moveit::planning_interface::MoveGroupInterface> move_group;   // Shared pointer to MoveGroupInterface 
+boost::scoped_ptr<moveit::planning_interface::MoveGroupInterface> gripper_move_group;  
+boost::scoped_ptr<actionlib::SimpleActionClient<control_msgs::GripperCommandAction>> gripper_ac;
+
 static const std::string PLANNING_GROUP = "manipulator";
 moveit_msgs::RobotTrajectory trajectory_msg;
 const float MAX_TIME = 120.0;   // Maximum planning time
@@ -160,6 +165,27 @@ void teachModeCallback(const std_msgs::String::ConstPtr& msg)
 	teachModeEnabled = !teachModeEnabled;
 }
 
+// TODO: Create topic on Android side
+void gripCallback(const std_msgs::String::ConstPtr& msg)
+{
+	//actionlib::SimpleActionClient<control_msgs::GripperCommandAction> gripper_ac("icl_gripper/gripper_cmd", true);
+
+	float amtToGrip = std::stof(msg->data.c_str());
+
+	const robot_state::JointModelGroup* gripper_model_group = gripper_move_group->getCurrentState()->getJointModelGroup("gripper");
+	moveit::core::RobotStatePtr current_gripper_state;
+	current_gripper_state = gripper_move_group->getCurrentState();
+	std::vector<double> gripper_joint_group_positions;
+    current_gripper_state->copyJointGroupPositions(gripper_model_group, gripper_joint_group_positions);
+
+    control_msgs::GripperCommandGoal goal;
+    goal.command.position = amtToGrip;
+    gripper_ac->sendGoal(goal);
+    ros::Duration(1.5).sleep();
+    current_gripper_state = gripper_move_group->getCurrentState();
+    current_gripper_state->copyJointGroupPositions(gripper_model_group, gripper_joint_group_positions);
+}
+
 // make new callback to also publish waypointcount
 
 int main(int argc, char **argv) {
@@ -170,6 +196,9 @@ int main(int argc, char **argv) {
     spinner.start();
 
 	move_group.reset(new moveit::planning_interface::MoveGroupInterface(PLANNING_GROUP));
+	gripper_move_group.reset(new moveit::planning_interface::MoveGroupInterface("gripper"));
+	gripper_ac.reset(new actionlib::SimpleActionClient<control_msgs::GripperCommandAction>("icl_gripper/gripper_cmd", true));
+
 	if (!node_handle.getParam("move_group/planning_plugin", planner_plugin_name))
     {
         ROS_FATAL_STREAM("Could not find planner plugin name");
@@ -180,6 +209,7 @@ int main(int argc, char **argv) {
   	//ros::Subscriber getWaypointCount = node_handle.subscribe("getWaypointCount", 1000, sendWaypointCount);
   	ros::Subscriber executeWaypoints = node_handle.subscribe("executeCallback", 1000, executeWaypointsCallback);
   	ros::Subscriber teachModeSub = node_handle.subscribe("teachModeCallback", 1000, teachModeCallback);
+  	ros::Subscriber gripSub = node_handle.subscribe("gripCallback", 1000, gripCallback);
 
   	ros::Publisher teachModePub = node_handle.advertise<std_msgs::String>("/icl_ur5/ur_driver/URScript", 1000);
   	std_msgs::String teachModeMsg;
@@ -191,12 +221,12 @@ int main(int argc, char **argv) {
 	  	if (!lastTeachModeEnabled && teachModeEnabled)
 	  	{
 	  		teachModeMsg.data = "set robotmode freedrive";
-	  		/*teachModeMsg.data = "def myProg():\n";
+	  		teachModeMsg.data = "def myProg():\n";
 	        teachModeMsg.data += "\twhile (True):\n";
 	        teachModeMsg.data += "\t\tfreedrive_mode()\n";
 	        teachModeMsg.data +="\t\tsync()\n";
 	        teachModeMsg.data += "\tend\n";
-	        teachModeMsg.data +="end\n";*/
+	        teachModeMsg.data +="end\n";
 	        teachModePub.publish(teachModeMsg);
 	        ROS_INFO("Teach mode enabled");
 	  	}
@@ -218,3 +248,55 @@ int main(int argc, char **argv) {
     ros::waitForShutdown();
 	return 0;
 }
+
+/* 
+close code
+const robot_state::JointModelGroup* gripper_model_group = gripper_move_group.getCurrentState()->getJointModelGroup("gripper");
+        moveit::core::RobotStatePtr current_gripper_state;
+        std::vector<double> gripper_joint_group_positions;
+        current_gripper_state = gripper_move_group.getCurrentState();
+        current_gripper_state->copyJointGroupPositions(gripper_model_group, gripper_joint_group_positions);
+
+        // Hard-coded close value, update as needed (or use F/T sensor)
+        if (my_abs(gripper_joint_group_positions[0] - 0.8f) > 5e-3)  // If gripper needs to be moved
+        {
+            control_msgs::GripperCommandGoal goal;
+            goal.command.position = 0.8;
+            feedback.status = "Closing gripper";
+            as->publishFeedback(feedback);
+            gripper_ac.sendGoal(goal);
+            ros::Duration(1.5).sleep();
+            current_gripper_state = gripper_move_group.getCurrentState();
+            current_gripper_state->copyJointGroupPositions(gripper_model_group, gripper_joint_group_positions);
+            feedback.status = "Closed gripper";
+            as->publishFeedback(feedback);
+        }
+
+ open code
+ const robot_state::JointModelGroup* gripper_model_group = gripper_move_group.getCurrentState()->getJointModelGroup("gripper");
+        moveit::core::RobotStatePtr current_gripper_state;
+        std::vector<double> gripper_joint_group_positions;
+        current_gripper_state = gripper_move_group.getCurrentState();
+        current_gripper_state->copyJointGroupPositions(gripper_model_group, gripper_joint_group_positions);
+
+        // Hard-coded open value, update as needed (or use F/T sensor)
+        if (my_abs(gripper_joint_group_positions[0] - 0.1f) > 5e-2) 
+        {
+            control_msgs::GripperCommandGoal goal;
+            goal.command.position = 0.1f;
+            feedback.status = "Opening gripper";
+            as->publishFeedback(feedback);
+            gripper_ac.sendGoal(goal);
+            ros::Duration(1.5).sleep();
+            current_gripper_state = gripper_move_group.getCurrentState();
+            current_gripper_state->copyJointGroupPositions(gripper_model_group, gripper_joint_group_positions);
+            if (my_abs(gripper_joint_group_positions[0] - 0.1f) > 5e-2)
+            {
+                feedback.status = "Failed to open gripper";
+                as->publishFeedback(feedback);
+                as->setAborted();
+                return;
+            }
+            feedback.status = "Opened gripper";
+            as->publishFeedback(feedback);
+*/
